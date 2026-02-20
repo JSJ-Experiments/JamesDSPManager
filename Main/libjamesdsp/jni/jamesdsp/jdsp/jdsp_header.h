@@ -176,6 +176,28 @@ typedef struct
 	StateVariable2ndOrder svf[2];
 	integerDelayLine dL[2];
 } DBB;
+typedef struct
+{
+	float b0, b1, b2;
+	float a1, a2;
+	float z1[2], z2[2];
+} SpectrumExtBiquad;
+typedef struct
+{
+	int enabled;
+	int safetyEnabled;
+	float strengthLinear;
+	int referenceFreq;
+	float wetMix;
+	float dryMix; // Kept at unity for parallel-add topology (dry + wet).
+	float postGain;
+	float hpQ;
+	float lpQ;
+	int lpOffsetHz;
+	double harmonics[10];
+	SpectrumExtBiquad hp;
+	SpectrumExtBiquad lp;
+} SpectrumExtension;
 //   sf_reverb_state_st rv;
 //   sf_presetreverb(&rv, 44100, SF_REVERB_PRESET_DEFAULT);
 //
@@ -465,6 +487,7 @@ typedef struct
 	FFTConvolver2x2 convState;
 } ArbEqConv;
 #define NUMPTS 15
+#define VIPER_EQ_BANDS 10
 typedef struct
 {
 	// FIR
@@ -486,6 +509,19 @@ typedef struct
 	float z2_AR[(NUMPTS - 1) * MAXSECTIONS];
 	float overallGain;
 	char sec[NUMPTS - 1];
+	// ViPER-style 10-band minimum-phase IIR bank
+	float viperCoeff0[VIPER_EQ_BANDS];
+	float viperCoeff1[VIPER_EQ_BANDS];
+	float viperCoeff2[VIPER_EQ_BANDS];
+	float viperBandGain[VIPER_EQ_BANDS];
+	float viperX1L[VIPER_EQ_BANDS];
+	float viperX2L[VIPER_EQ_BANDS];
+	float viperY1L[VIPER_EQ_BANDS];
+	float viperY2L[VIPER_EQ_BANDS];
+	float viperX1R[VIPER_EQ_BANDS];
+	float viperX2R[VIPER_EQ_BANDS];
+	float viperY1R[VIPER_EQ_BANDS];
+	float viperY2R[VIPER_EQ_BANDS];
 } MultimodalEQ;
 extern unsigned int HSHOSVF(double fs, double fc, unsigned int filterOrder, double gain, double overallGainDb, float *c1, float *c2, float *d0, float *d1, float *overallGain);
 typedef struct
@@ -511,6 +547,8 @@ typedef struct dspsys
 	// Bass boost
 	int bassBoostEnabled;
 	DBB dbb;
+	// Spectrum extension
+	SpectrumExtension spectrumExt;
 	// Equalizer
 	int equalizerEnabled, equalizerForceRefresh;
 	MultimodalEQ mEQ;
@@ -520,6 +558,11 @@ typedef struct dspsys
 	// Stereo enhancement
 	int sterEnhEnabled;
 	stereoEnhancement sterEnh;
+	// Clarity
+	int clarityEnabled;
+	void *clarityProcessor;
+	float *clarityInterleavedBuffer;
+	size_t clarityInterleavedCapacity;
 	// Vacuum tube
 	int tubeEnabled;
 	VacuumTube tube;
@@ -605,6 +648,19 @@ extern void BassBoostDisable(JamesDSPLib *jdsp);
 extern void BassBoostConstructor(JamesDSPLib *jdsp);
 extern void BassBoostSetParam(JamesDSPLib *jdsp, float maxG);
 extern void BassBoostProcess(JamesDSPLib *jdsp, size_t n);
+// Spectrum extension
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void SpectrumExtensionConstructor(JamesDSPLib *jdsp);
+extern void SpectrumExtensionSetParam(JamesDSPLib *jdsp, float strengthLinear, int referenceFreq, float wetMix, float postGainDb, char safetyEnabled, float hpQ, float lpQ, int lpOffsetHz, const double harmonics[10]);
+extern void SpectrumExtensionRefresh(JamesDSPLib *jdsp);
+extern void SpectrumExtensionEnable(JamesDSPLib *jdsp);
+extern void SpectrumExtensionDisable(JamesDSPLib *jdsp);
+extern void SpectrumExtensionProcess(JamesDSPLib *jdsp, size_t n);
+#ifdef __cplusplus
+}
+#endif
 // Reverb
 extern void Reverb_SetParam(JamesDSPLib *jdsp, int presets);
 extern void ReverbEnable(JamesDSPLib *jdsp);
@@ -618,6 +674,21 @@ extern void StereoEnhancementSetParam(JamesDSPLib *jdsp, float mix);
 extern void StereoEnhancementEnable(JamesDSPLib *jdsp);
 extern void StereoEnhancementDisable(JamesDSPLib *jdsp);
 extern void StereoEnhancementProcess(JamesDSPLib *jdsp, size_t n);
+// Clarity
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void ClarityConstructor(JamesDSPLib *jdsp);
+extern void ClarityDestructor(JamesDSPLib *jdsp);
+extern void ClarityReserveBuffer(JamesDSPLib *jdsp, size_t frames);
+extern void ClaritySetSampleRate(JamesDSPLib *jdsp);
+extern void ClaritySetParam(JamesDSPLib *jdsp, int mode, float gain, float postGainDb, char safetyEnabled, float safetyThresholdDb, float safetyReleaseMs, int naturalLpfOffsetHz, int ozoneFreqHz, int xhifiLowCutHz, int xhifiHighCutHz, float xhifiHpMix, float xhifiBpMix, int xhifiBpDelayDivisor, int xhifiLpDelayDivisor);
+extern void ClarityEnable(JamesDSPLib *jdsp);
+extern void ClarityDisable(JamesDSPLib *jdsp);
+extern void ClarityProcess(JamesDSPLib *jdsp, size_t n);
+#ifdef __cplusplus
+}
+#endif
 // Vacuum tube
 extern void VacuumTubeEnable(JamesDSPLib *jdsp);
 extern void VacuumTubeDisable(JamesDSPLib *jdsp);

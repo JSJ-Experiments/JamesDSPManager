@@ -418,6 +418,19 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 				*replyData = 0;
 				return 0;
 			}
+			else if (cmd == 1207)
+			{
+				int16_t spectrumExtensionEnabled = ((int16_t *)cep)[8];
+				if (!spectrumExtensionEnabled)
+					SpectrumExtensionDisable(&dspmain->jdsp);
+				else
+					SpectrumExtensionEnable(&dspmain->jdsp);
+#ifdef DEBUG
+				LOGE("Spectrum extension enabled: %d", spectrumExtensionEnabled);
+#endif
+				*replyData = 0;
+				return 0;
+			}
 			else if (cmd == 1208)
 			{
 				int16_t bs2bEnabled = ((int16_t *)cep)[8];
@@ -427,6 +440,19 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 					CrossfeedEnable(&dspmain->jdsp, 1);
 #ifdef DEBUG
 				LOGE("Crossfeed enabled: %d", bs2bEnabled);
+#endif
+				*replyData = 0;
+				return 0;
+			}
+			else if (cmd == 1209)
+			{
+				int16_t clarityEnabled = ((int16_t *)cep)[8];
+				if (!clarityEnabled)
+					ClarityDisable(&dspmain->jdsp);
+				else
+					ClarityEnable(&dspmain->jdsp);
+#ifdef DEBUG
+				LOGE("Clarity enabled: %d", clarityEnabled);
 #endif
 				*replyData = 0;
 				return 0;
@@ -692,6 +718,93 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 					LOGI("%1.7lf %1.7lf; ", param[i], param[i + 15]);
 #endif
 				MultimodalEqualizerAxisInterpolation(&dspmain->jdsp, interpolationMode, filtertype, param, param + 15);
+				*replyData = 0;
+				return 0;
+			}
+		}
+		if (cep->psize == 4 && cep->vsize == 72)
+		{
+			int32_t cmd = ((int32_t *)cep)[3];
+			if (cmd == 117)
+			{
+				float strengthLinear = ((float*)cep)[4 + 0];
+				int referenceFreq = (int)roundf(((float*)cep)[4 + 1]);
+				float wetMix = ((float*)cep)[4 + 2];
+				float postGainDb = ((float*)cep)[4 + 3];
+				char safetyEnabled = ((float*)cep)[4 + 4] > 0.5f ? 1 : 0;
+				float hpQ = ((float*)cep)[4 + 5];
+				float lpQ = ((float*)cep)[4 + 6];
+				int lpCutoffOffsetHz = (int)roundf(((float*)cep)[4 + 7]);
+				double harmonics[10];
+				for (int i = 0; i < 10; i++)
+					harmonics[i] = (double)((float*)cep)[4 + 8 + i];
+
+				SpectrumExtensionSetParam(
+					&dspmain->jdsp,
+					strengthLinear,
+					referenceFreq,
+					wetMix,
+					postGainDb,
+					safetyEnabled,
+					hpQ,
+					lpQ,
+					lpCutoffOffsetHz,
+					harmonics);
+#ifdef DEBUG
+				LOGI("Spectrum extension payload applied");
+#endif
+				*replyData = 0;
+				return 0;
+			}
+		}
+		if (cep->psize == 4 && cep->vsize == 56)
+		{
+			int32_t cmd = ((int32_t *)cep)[3];
+			if (cmd == 118)
+			{
+				int mode = (int)roundf(((float*)cep)[4 + 0]);
+				float gain = ((float*)cep)[4 + 1];
+				float postGainDb = ((float*)cep)[4 + 2];
+				char safetyEnabled = ((float*)cep)[4 + 3] > 0.5f ? 1 : 0;
+				float safetyThresholdDb = ((float*)cep)[4 + 4];
+				float safetyReleaseMs = ((float*)cep)[4 + 5];
+				int naturalLpfOffsetHz = (int)roundf(((float*)cep)[4 + 6]);
+				int ozoneFreqHz = (int)roundf(((float*)cep)[4 + 7]);
+				int xhifiLowCutHz = (int)roundf(((float*)cep)[4 + 8]);
+				int xhifiHighCutHz = (int)roundf(((float*)cep)[4 + 9]);
+				float xhifiHpMix = ((float*)cep)[4 + 10];
+				float xhifiBpMix = ((float*)cep)[4 + 11];
+				int xhifiBpDelayDivisor = (int)roundf(((float*)cep)[4 + 12]);
+				int xhifiLpDelayDivisor = (int)roundf(((float*)cep)[4 + 13]);
+
+				if (mode < 0)
+					mode = 0;
+				if (mode > 2)
+					mode = 2;
+				if (gain < 0.0f)
+					gain = 0.0f;
+				if (gain > 2.5f)
+					gain = 2.5f;
+
+				ClaritySetParam(
+					&dspmain->jdsp,
+					mode,
+					gain,
+					postGainDb,
+					safetyEnabled,
+					safetyThresholdDb,
+					safetyReleaseMs,
+					naturalLpfOffsetHz,
+					ozoneFreqHz,
+					xhifiLowCutHz,
+					xhifiHighCutHz,
+					xhifiHpMix,
+					xhifiBpMix,
+					xhifiBpDelayDivisor,
+					xhifiLpDelayDivisor);
+#ifdef DEBUG
+				LOGI("Clarity payload applied (mode: %d, gain: %f, postGainDb: %f)", mode, gain, postGainDb);
+#endif
 				*replyData = 0;
 				return 0;
 			}

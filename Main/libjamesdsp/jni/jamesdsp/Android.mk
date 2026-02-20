@@ -14,7 +14,9 @@ LOCAL_SRC_FILES := \
 	jdsp/generalDSP/generalProg.c \
 	jdsp/Effects/vdc.c \
 	jdsp/Effects/vacuumTube.c \
+	jdsp/Effects/spectrumExtension.c \
 	jdsp/Effects/stereoEnhancement.c \
+	jdsp/Effects/clarity_adapter.cpp \
 	jdsp/Effects/reverb.c \
 	jdsp/Effects/liveprogWrapper.c \
 	jdsp/Effects/multimodalEQ.c \
@@ -87,8 +89,10 @@ LOCAL_SRC_FILES := \
 	jdsp/Effects/eel2/y.tab.c \
 	jdsp/binaryBlobs.c \
 	jdsp/jdspController.c \
+	third_party/libjamesdsp-wrapper/clarity/ClarityProcessor.cpp \
 	jamesdsp.c \
 # terminator
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/third_party/libjamesdsp-wrapper/clarity
 LOCAL_LDLIBS := -llog
 ifeq ($(TARGET_ARCH_ABI), armeabi-v7a)
 LOCAL_CPPFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections -Ofast -march=armv7-a -mfpu=neon -ftree-vectorize -fvisibility=hidden -DJAMESDSP_REFERENCE_IMPL #-DDEBUG -g

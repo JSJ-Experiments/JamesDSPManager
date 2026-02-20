@@ -4,6 +4,122 @@
 #include <math.h>
 #include <float.h>
 #include "../jdsp_header.h"
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define TAG "EffectDSPMain"
+#endif
+
+#define EQ_MODE_VIPER_ORIGINAL 6
+
+static const double VIPER_EQ_CENTER_FREQS[VIPER_EQ_BANDS] = {
+	31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0
+};
+
+static void ViperEqResetState(MultimodalEQ *eq)
+{
+	memset(eq->viperX1L, 0, sizeof(eq->viperX1L));
+	memset(eq->viperX2L, 0, sizeof(eq->viperX2L));
+	memset(eq->viperY1L, 0, sizeof(eq->viperY1L));
+	memset(eq->viperY2L, 0, sizeof(eq->viperY2L));
+	memset(eq->viperX1R, 0, sizeof(eq->viperX1R));
+	memset(eq->viperX2R, 0, sizeof(eq->viperX2R));
+	memset(eq->viperY1R, 0, sizeof(eq->viperY1R));
+	memset(eq->viperY2R, 0, sizeof(eq->viperY2R));
+}
+
+static inline float ViperEqFlushDenorm(float value)
+{
+	return fabsf(value) < 1.0e-20f ? 0.0f : value;
+}
+
+static inline float ViperBandProcess(float in, int band, const float *viperCoeff0, const float *viperCoeff1, const float *viperCoeff2, float bandGain, float *viperX1, float *viperX2, float *viperY1, float *viperY2)
+{
+	float y = viperCoeff2[band] * viperY1[band]
+		+ viperCoeff1[band] * (in - viperX2[band])
+		- viperCoeff0[band] * viperY2[band];
+	y = ViperEqFlushDenorm(y);
+	viperX2[band] = viperX1[band];
+	viperX1[band] = in;
+	viperY2[band] = viperY1[band];
+	viperY1[band] = y;
+	return ViperEqFlushDenorm(y * bandGain);
+}
+
+static double ViperEqFindF1(double centerFreq, double widthOctaves)
+{
+	double x = pow(2.0, widthOctaves * 0.5);
+	return centerFreq / x;
+}
+
+static int ViperEqSolveRoot(double a, double b, double c, double *root)
+{
+	if (fabs(a) < DBL_EPSILON)
+		return -1;
+	double x = (c - (b * b) / (a * 4.0)) / a;
+	double y = b / (a + a);
+	if (x >= 0.0)
+		return -1;
+	double z = sqrt(-x);
+	double r1 = -y - z;
+	double r2 = z - y;
+	*root = r1 > r2 ? r2 : r1;
+	return 0;
+}
+
+static void ViperEqUpdateCoeffs(MultimodalEQ *eq, double sampleRate)
+{
+	const double bandwidthOctaves = 1.0;
+	if (sampleRate <= 0.0)
+	{
+		memset(eq->viperCoeff0, 0, sizeof(eq->viperCoeff0));
+		memset(eq->viperCoeff1, 0, sizeof(eq->viperCoeff1));
+		memset(eq->viperCoeff2, 0, sizeof(eq->viperCoeff2));
+		return;
+	}
+	for (int i = 0; i < VIPER_EQ_BANDS; i++)
+	{
+		double f1 = ViperEqFindF1(VIPER_EQ_CENTER_FREQS[i], bandwidthOctaves);
+		double x = (2.0 * M_PI * VIPER_EQ_CENTER_FREQS[i]) / sampleRate;
+		double y = (2.0 * M_PI * f1) / sampleRate;
+		double cosX = cos(x);
+		double cosY = cos(y);
+		double sinY = sin(y);
+		double a = cosX * cosY;
+		double b = (cosX * cosX) * 0.5;
+		double c = sinY * sinY;
+		double d = ((b - a) + 0.5) - c;
+		double e = c + (((b + cosY * cosY) - a) - 0.5);
+		double f = (((cosX * cosX) * 0.125 - cosX * cosY * 0.25) + 0.125) - c * 0.25;
+		double root = 0.0;
+		int solveResult = ViperEqSolveRoot(d, e, f, &root);
+		if (solveResult == 0)
+		{
+			eq->viperCoeff0[i] = (float)(root + root);
+			eq->viperCoeff1[i] = (float)(0.5 - root);
+			eq->viperCoeff2[i] = (float)((root + 0.5) * cosX * 2.0);
+		}
+		else
+		{
+#if defined(__ANDROID__)
+			__android_log_print(ANDROID_LOG_WARN, TAG, "ViperEqSolveRoot failed for band %d (err=%d); using stable fallback coeffs", i, solveResult);
+#else
+			fprintf(stderr, "ViperEqSolveRoot failed for band %d (err=%d); using stable fallback coeffs\n", i, solveResult);
+#endif
+			/* ViperEqSolveRoot fallback: H(z)=coeff1*(1-z^-2) with eq->viperCoeff0/1/2=(0,1,0); this avoids muting, but true unity pass-through is not representable in this form. */
+			eq->viperCoeff0[i] = 0.0f;
+			eq->viperCoeff1[i] = 1.0f;
+			eq->viperCoeff2[i] = 0.0f;
+		}
+	}
+}
+
+static void ViperEqSetBandLevel(MultimodalEQ *eq, int band, double levelDb)
+{
+	if (band < 0 || band >= VIPER_EQ_BANDS)
+		return;
+	eq->viperBandGain[band] = (float)(pow(10.0, levelDb / 20.0) * 0.636);
+}
+
 void MultimodalEqualizerConstructor(JamesDSPLib *jdsp)
 {
 	double freqAx[NUMPTS] = { 25.0, 40.0, 63.0, 100.0, 160.0, 250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0, 6300.0, 10000.0, 16000.0 };
@@ -24,6 +140,10 @@ void MultimodalEqualizerConstructor(JamesDSPLib *jdsp)
 	FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.instance.convState, (unsigned int)jdsp->blockSize, kDelta, kDelta, jdsp->mEQ.instance.filterLen);
 	FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.conv, (unsigned int)jdsp->blockSize, kDelta, kDelta, jdsp->mEQ.instance.filterLen);
 	free(kDelta);
+	for (int i = 0; i < VIPER_EQ_BANDS; i++)
+		jdsp->mEQ.viperBandGain[i] = 0.636f;
+	ViperEqUpdateCoeffs(&jdsp->mEQ, jdsp->fs);
+	ViperEqResetState(&jdsp->mEQ);
 }
 void MultimodalEqualizerDestructor(JamesDSPLib *jdsp)
 {
@@ -146,14 +266,17 @@ double reverseProjectX(double pos, double MIN_FREQ, double MAX_FREQ)
 }
 void MultimodalEqualizerAxisInterpolation(JamesDSPLib *jdsp, int interpolationMode, int operatingMode, double *freqAx, double *gaindB)
 {
+	const int isIirHshosvfMode = operatingMode >= 1 && operatingMode <= 5;
+	const double gainClampLimitDb = isIirHshosvfMode ? 24.0 : 64.0;
 	memcpy(jdsp->mEQ.freq + 1, freqAx, NUMPTS * sizeof(double));
 	memcpy(jdsp->mEQ.gain + 1, gaindB, NUMPTS * sizeof(double));
 	for (int i = 0; i < NUMPTS; i++)
 	{
-		if (jdsp->mEQ.gain[i] < -64.0)
-			jdsp->mEQ.gain[i] = -64.0;
-		if (jdsp->mEQ.gain[i] > 64.0)
-			jdsp->mEQ.gain[i] = 64.0;
+		// HSHOSVF converts dB to linear with pow(10.0, gain / 20.0), so keep tighter limits in IIR modes.
+		if (jdsp->mEQ.gain[i + 1] < -gainClampLimitDb)
+			jdsp->mEQ.gain[i + 1] = -gainClampLimitDb;
+		if (jdsp->mEQ.gain[i + 1] > gainClampLimitDb)
+			jdsp->mEQ.gain[i + 1] = gainClampLimitDb;
 	}
 	jdsp->mEQ.freq[0] = 0.0;
 	jdsp->mEQ.gain[0] = jdsp->mEQ.gain[1];
@@ -173,6 +296,32 @@ void MultimodalEqualizerAxisInterpolation(JamesDSPLib *jdsp, int interpolationMo
 			eqFil = InterpolatingEqMinimumPhase(&jdsp->mEQ.instance.coeffGen, (float)jdsp->fs, (void *)(&jdsp->mEQ.pch2));
 		}
 		FFTConvolver2x2RefreshImpulseResponse(&jdsp->mEQ.instance.convState, &jdsp->mEQ.conv, eqFil, eqFil, jdsp->mEQ.instance.filterLen);
+	}
+	else if (operatingMode == EQ_MODE_VIPER_ORIGINAL)
+	{
+		cubic_hermite *curve;
+		if (!interpolationMode)
+		{
+			pchip(&jdsp->mEQ.pch1, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
+			curve = &jdsp->mEQ.pch1.cb;
+		}
+		else
+		{
+			makima(&jdsp->mEQ.pch2, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
+			curve = &jdsp->mEQ.pch2.cb;
+		}
+		for (int i = 0; i < VIPER_EQ_BANDS; i++)
+		{
+			double gainDb = getValueAt(curve, VIPER_EQ_CENTER_FREQS[i]);
+			if (interpolationMode)
+			{
+				if (gainDb < -gainClampLimitDb)
+					gainDb = -gainClampLimitDb;
+				if (gainDb > gainClampLimitDb)
+					gainDb = gainClampLimitDb;
+			}
+			ViperEqSetBandLevel(&jdsp->mEQ, i, gainDb);
+		}
 	}
 	else
 	{
@@ -211,6 +360,10 @@ void MultimodalEqualizerAxisInterpolation(JamesDSPLib *jdsp, int interpolationMo
 		for (int i = 0; i < NUMPTS - 1; i++)
 		{
 			double dB = gains[i + 1] - gains[i];
+			if (dB < -gainClampLimitDb)
+				dB = -gainClampLimitDb;
+			if (dB > gainClampLimitDb)
+				dB = gainClampLimitDb;
 			double designFreq;
 			if (i)
 				designFreq = (freq[i + 1] + freq[i]) * 0.5;
@@ -235,25 +388,37 @@ void MultimodalEqualizerEnable(JamesDSPLib *jdsp, char enable)
 {
 	if (jdsp->equalizerForceRefresh)
 	{
-		float *eqFil;
-		if (!jdsp->mEQ.currentInterpolationMode)
+		if (!jdsp->mEQ.operatingMode)
 		{
-			pchip(&jdsp->mEQ.pch1, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
-			eqFil = InterpolatingEqMinimumPhase(&jdsp->mEQ.instance.coeffGen, (float)jdsp->fs, (void *)(&jdsp->mEQ.pch1));
+			float *eqFil;
+			if (!jdsp->mEQ.currentInterpolationMode)
+			{
+				pchip(&jdsp->mEQ.pch1, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
+				eqFil = InterpolatingEqMinimumPhase(&jdsp->mEQ.instance.coeffGen, (float)jdsp->fs, (void *)(&jdsp->mEQ.pch1));
+			}
+			else
+			{
+				makima(&jdsp->mEQ.pch2, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
+				eqFil = InterpolatingEqMinimumPhase(&jdsp->mEQ.instance.coeffGen, (float)jdsp->fs, (void *)(&jdsp->mEQ.pch2));
+			}
+			FFTConvolver2x2Free(&jdsp->mEQ.instance.convState);
+			FFTConvolver2x2Free(&jdsp->mEQ.conv);
+			FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.instance.convState, (unsigned int)jdsp->blockSize, eqFil, eqFil, jdsp->mEQ.instance.filterLen);
+			FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.conv, (unsigned int)jdsp->blockSize, eqFil, eqFil, jdsp->mEQ.instance.filterLen);
 		}
-		else
+		else if (jdsp->mEQ.operatingMode == EQ_MODE_VIPER_ORIGINAL)
 		{
-			makima(&jdsp->mEQ.pch2, jdsp->mEQ.freq, jdsp->mEQ.gain, NUMPTS + 2, 1, 1);
-			eqFil = InterpolatingEqMinimumPhase(&jdsp->mEQ.instance.coeffGen, (float)jdsp->fs, (void *)(&jdsp->mEQ.pch2));
+			ViperEqUpdateCoeffs(&jdsp->mEQ, jdsp->fs);
+			ViperEqResetState(&jdsp->mEQ);
 		}
-		FFTConvolver2x2Free(&jdsp->mEQ.instance.convState);
-		FFTConvolver2x2Free(&jdsp->mEQ.conv);
-		FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.instance.convState, (unsigned int)jdsp->blockSize, eqFil, eqFil, jdsp->mEQ.instance.filterLen);
-		FFTConvolver2x2LoadImpulseResponse(&jdsp->mEQ.conv, (unsigned int)jdsp->blockSize, eqFil, eqFil, jdsp->mEQ.instance.filterLen);
 		jdsp->equalizerForceRefresh = 0;
 	}
 	if (enable)
+	{
+		if (!jdsp->equalizerEnabled && jdsp->mEQ.operatingMode == EQ_MODE_VIPER_ORIGINAL)
+			ViperEqResetState(&jdsp->mEQ);
 		jdsp->equalizerEnabled = 1;
+	}
 }
 void MultimodalEqualizerDisable(JamesDSPLib *jdsp)
 {
@@ -263,6 +428,45 @@ void MultimodalEqualizerProcess(JamesDSPLib *jdsp, size_t n)
 {
 	if (!jdsp->mEQ.operatingMode)
 		FFTConvolver2x2Process(&jdsp->mEQ.conv, jdsp->tmpBuffer[0], jdsp->tmpBuffer[1], jdsp->tmpBuffer[0], jdsp->tmpBuffer[1], (unsigned int)n);
+	else if (jdsp->mEQ.operatingMode == EQ_MODE_VIPER_ORIGINAL)
+	{
+		for (size_t smp = 0; smp < n; smp++)
+		{
+			float inL = jdsp->tmpBuffer[0][smp];
+			float inR = jdsp->tmpBuffer[1][smp];
+			float outL = 0.0f;
+			float outR = 0.0f;
+			for (int k = 0; k < VIPER_EQ_BANDS; k++)
+			{
+				outL = ViperEqFlushDenorm(outL + ViperBandProcess(
+					inL,
+					k,
+					jdsp->mEQ.viperCoeff0,
+					jdsp->mEQ.viperCoeff1,
+					jdsp->mEQ.viperCoeff2,
+					jdsp->mEQ.viperBandGain[k],
+					jdsp->mEQ.viperX1L,
+					jdsp->mEQ.viperX2L,
+					jdsp->mEQ.viperY1L,
+					jdsp->mEQ.viperY2L
+				));
+				outR = ViperEqFlushDenorm(outR + ViperBandProcess(
+					inR,
+					k,
+					jdsp->mEQ.viperCoeff0,
+					jdsp->mEQ.viperCoeff1,
+					jdsp->mEQ.viperCoeff2,
+					jdsp->mEQ.viperBandGain[k],
+					jdsp->mEQ.viperX1R,
+					jdsp->mEQ.viperX2R,
+					jdsp->mEQ.viperY1R,
+					jdsp->mEQ.viperY2R
+				));
+			}
+			jdsp->tmpBuffer[0][smp] = ViperEqFlushDenorm(outL);
+			jdsp->tmpBuffer[1][smp] = ViperEqFlushDenorm(outR);
+		}
+	}
 	else
 	{
 		for (size_t smp = 0; smp < n; smp++)

@@ -268,6 +268,7 @@ void JamesDSPReallocateBlock(JamesDSPLib *jdsp, size_t n)
 	jdsp->tmpBuffer[3] = jdsp->tmpBuffer[2] + maxInterpolatedLength;
 	jdsp->tmpBuffer[4] = jdsp->tmpBuffer[3] + maxInterpolatedLength;
 	jdsp->tmpBuffer[5] = jdsp->tmpBuffer[4] + jdsp->pw2BlockMemSize;
+	ClarityReserveBuffer(jdsp, jdsp->blockSizeMax);
 	if (tmp1)
 		free(tmp1);
 }
@@ -318,6 +319,9 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// IIR bass boost
 	if (jdsp->bassBoostEnabled)
 		BassBoostProcess(jdsp, n);
+	// Spectrum extension
+	if (jdsp->spectrumExt.enabled)
+		SpectrumExtensionProcess(jdsp, n);
 	// Equalizer
 	if (jdsp->equalizerEnabled)
 		MultimodalEqualizerProcess(jdsp, n);
@@ -345,6 +349,9 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// Reverb
 	if (jdsp->reverbEnabled)
 		ReverbProcess(jdsp, n);
+	// Clarity
+	if (jdsp->clarityEnabled)
+		ClarityProcess(jdsp, n);
 	// Output
 	for (size_t i = 0; i < n; i++)
 	{
@@ -377,6 +384,9 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// IIR bass boost
 	if (jdsp->bassBoostEnabled)
 		BassBoostProcess(jdsp, n);
+	// Spectrum extension
+	if (jdsp->spectrumExt.enabled)
+		SpectrumExtensionProcess(jdsp, n);
 	// Equalizer
 	if (jdsp->equalizerEnabled)
 		MultimodalEqualizerProcess(jdsp, n);
@@ -404,6 +414,9 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// Reverb
 	if (jdsp->reverbEnabled)
 		ReverbProcess(jdsp, n);
+	// Clarity
+	if (jdsp->clarityEnabled)
+		ClarityProcess(jdsp, n);
 	// Output
 	for (size_t i = 0; i < n; i++)
 	{
@@ -1112,9 +1125,13 @@ void JamesDSPInit(JamesDSPLib *jdsp, int n, float sample_rate)
 	CompressorDisable(jdsp);
 	BassBoostConstructor(jdsp);
 	BassBoostDisable(jdsp);
+	SpectrumExtensionConstructor(jdsp);
+	SpectrumExtensionDisable(jdsp);
 	ReverbDisable(jdsp);
 	StereoEnhancementConstructor(jdsp);
 	StereoEnhancementDisable(jdsp);
+	ClarityConstructor(jdsp);
+	ClarityDisable(jdsp);
 	VacuumTubeDisable(jdsp);
 	LiveProgDisable(jdsp);
 	DDCConstructor(jdsp);
@@ -1219,10 +1236,14 @@ void JamesDSPSetSampleRate(JamesDSPLib *jdsp, float new_sample_rate, int forceRe
 		StereoEnhancementRefresh(jdsp);
 	}
 	jdsp_unlock(jdsp);
+	SpectrumExtensionRefresh(jdsp);
+	ClaritySetSampleRate(jdsp);
 }
 void JamesDSPFree(JamesDSPLib *jdsp)
 {
+	int hadMutex = jdsp->isMutexSuccess;
 	jdsp_lock(jdsp);
+	ClarityDestructor(jdsp);
 	StereoEnhancementDestructor(jdsp);
 	CompressorDestructor(jdsp);
 	LiveProgDestructor(jdsp);
@@ -1251,12 +1272,15 @@ void JamesDSPFree(JamesDSPLib *jdsp)
 	}
 	if (jdsp->impulseResponseStorage.impulseResponse)
 		free(jdsp->impulseResponseStorage.impulseResponse);
-	if (jdsp->isMutexSuccess)
-		pthread_mutex_destroy(&jdsp->m_in_processing);
 	if (jdsp->enableASRC)
 	{
 		FreeIntegerASRCHandler(&jdsp->asrc[0]);
 		FreeIntegerASRCHandler(&jdsp->asrc[1]);
 	}
 	jdsp_unlock(jdsp);
+	if (hadMutex)
+	{
+		pthread_mutex_destroy(&jdsp->m_in_processing);
+		jdsp->isMutexSuccess = 0;
+	}
 }
