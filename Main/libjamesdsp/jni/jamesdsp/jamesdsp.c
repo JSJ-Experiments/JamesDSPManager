@@ -756,7 +756,7 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 				return 0;
 			}
 		}
-		if (cep->psize == 4 && cep->vsize == 72)
+		if (cep->psize == 4 && (cep->vsize == 72 || cep->vsize == 76))
 		{
 			int32_t cmd = ((int32_t *)cep)[3];
 			if (cmd == 117)
@@ -764,6 +764,7 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 				float strengthLinear = ((float*)cep)[4 + 0];
 				int referenceFreq = (int)roundf(((float*)cep)[4 + 1]);
 				float wetMix = ((float*)cep)[4 + 2];
+				char wetOnlyMonitor = 0;
 				float postGainDb = ((float*)cep)[4 + 3];
 				char safetyEnabled = ((float*)cep)[4 + 4] > 0.5f ? 1 : 0;
 				float hpQ = ((float*)cep)[4 + 5];
@@ -772,12 +773,15 @@ int32_t EffectDSPMainCommand(EffectDSPMain *dspmain, uint32_t cmdCode, uint32_t 
 				double harmonics[10];
 				for (int i = 0; i < 10; i++)
 					harmonics[i] = (double)((float*)cep)[4 + 8 + i];
+				if (cep->vsize >= 76)
+					wetOnlyMonitor = ((float*)cep)[4 + 18] > 0.5f ? 1 : 0;
 
 				SpectrumExtensionSetParam(
 					&dspmain->jdsp,
 					strengthLinear,
 					referenceFreq,
 					wetMix,
+					wetOnlyMonitor,
 					postGainDb,
 					safetyEnabled,
 					hpQ,

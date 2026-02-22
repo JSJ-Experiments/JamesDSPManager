@@ -258,6 +258,7 @@ void SpectrumExtensionConstructor(JamesDSPLib *jdsp)
 	ext->enabled = 0;
 	ext->exciter = 0.0f;
 	ext->wetMix = SPECTRUM_DEFAULT_WET_MIX;
+	ext->dryMix = 1.0f;
 	ext->postGain = SPECTRUM_DEFAULT_POST_GAIN;
 	ext->safetyEnabled = 0;
 	ext->hpQ = SPECTRUM_DEFAULT_Q;
@@ -290,13 +291,14 @@ void SpectrumExtensionSetExciter(JamesDSPLib *jdsp, float exciter)
 	jdsp_unlock(jdsp);
 }
 
-void SpectrumExtensionSetParam(JamesDSPLib *jdsp, float strengthLinear, int referenceFreq, float wetMix, float postGainDb, char safetyEnabled, float hpQ, float lpQ, int lpOffsetHz, const double harmonics[10])
+void SpectrumExtensionSetParam(JamesDSPLib *jdsp, float strengthLinear, int referenceFreq, float wetMix, char wetOnlyMonitor, float postGainDb, char safetyEnabled, float hpQ, float lpQ, int lpOffsetHz, const double harmonics[10])
 {
 	jdsp_lock(jdsp);
 	SpectrumExtension *ext = &jdsp->spectrumExt;
 	ext->referenceFreq = spectrumClampReferenceFrequency(ext, referenceFreq);
 	ext->exciter = spectrumSanitizeFloat(strengthLinear, 0.0f);
 	ext->wetMix = spectrumSanitizeFloat(wetMix, SPECTRUM_DEFAULT_WET_MIX);
+	ext->dryMix = wetOnlyMonitor ? 0.0f : 1.0f;
 	if (ext->wetMix < 0.0f)
 		ext->wetMix = 0.0f;
 	if (ext->wetMix > 1.0f)
@@ -369,8 +371,8 @@ void SpectrumExtensionProcess(JamesDSPLib *jdsp, size_t n)
 
 		double lpL = spectrumBiquadProcessSample(&ext->lowpass[0], harmonicL * ext->exciter);
 		double lpR = spectrumBiquadProcessSample(&ext->lowpass[1], harmonicR * ext->exciter);
-		double outL = (inL + lpL * ext->wetMix) * ext->postGain;
-		double outR = (inR + lpR * ext->wetMix) * ext->postGain;
+		double outL = (inL * ext->dryMix + lpL * ext->wetMix) * ext->postGain;
+		double outR = (inR * ext->dryMix + lpR * ext->wetMix) * ext->postGain;
 		if (ext->safetyEnabled)
 		{
 			outL = spectrumClampSafety(outL);

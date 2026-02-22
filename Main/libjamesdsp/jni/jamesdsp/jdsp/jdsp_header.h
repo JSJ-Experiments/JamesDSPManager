@@ -198,6 +198,7 @@ typedef struct
 	int referenceFreq;
 	float exciter;
 	float wetMix;
+	float dryMix;
 	float postGain;
 	char safetyEnabled;
 	float hpQ;
@@ -666,7 +667,7 @@ extern void SpectrumExtensionConstructor(JamesDSPLib *jdsp);
 extern void SpectrumExtensionSetSamplingRate(JamesDSPLib *jdsp, int samplingRate);
 extern void SpectrumExtensionSetReferenceFrequency(JamesDSPLib *jdsp, int referenceFreq);
 extern void SpectrumExtensionSetExciter(JamesDSPLib *jdsp, float exciter);
-extern void SpectrumExtensionSetParam(JamesDSPLib *jdsp, float strengthLinear, int referenceFreq, float wetMix, float postGainDb, char safetyEnabled, float hpQ, float lpQ, int lpOffsetHz, const double harmonics[10]);
+extern void SpectrumExtensionSetParam(JamesDSPLib *jdsp, float strengthLinear, int referenceFreq, float wetMix, char wetOnlyMonitor, float postGainDb, char safetyEnabled, float hpQ, float lpQ, int lpOffsetHz, const double harmonics[10]);
 extern void SpectrumExtensionRefresh(JamesDSPLib *jdsp);
 extern void SpectrumExtensionEnable(JamesDSPLib *jdsp);
 extern void SpectrumExtensionDisable(JamesDSPLib *jdsp);
