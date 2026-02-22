@@ -319,15 +319,6 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// IIR bass boost
 	if (jdsp->bassBoostEnabled)
 		BassBoostProcess(jdsp, n);
-	// Spectrum extension
-	if (jdsp->spectrumExt.enabled)
-		SpectrumExtensionProcess(jdsp, n);
-	// Equalizer
-	if (jdsp->equalizerEnabled)
-		MultimodalEqualizerProcess(jdsp, n);
-	// Arbitrary magnitude eq
-	if (jdsp->arbitraryMagEnabled)
-		ArbitraryResponseEqualizerProcess(jdsp, n);
 	jdsp_lock(jdsp);
 	// Convolver
 	if (jdsp->convolverEnabled)
@@ -339,6 +330,19 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// Live programmable
 	if (jdsp->liveprogEnabled)
 		LiveProgProcess(jdsp, n);
+	// Spectrum extension (ViPER chain: DDC -> Spectrum -> EQ)
+	if (jdsp->spectrumExt.enabled)
+		SpectrumExtensionProcess(jdsp, n);
+	// Equalizer
+	if (jdsp->equalizerEnabled)
+		MultimodalEqualizerProcess(jdsp, n);
+	// Clarity placement stays after Spectrum/EQ and before ArbEQ (closest safe match to
+	// ViPER's Bass -> Clarity -> Cure segment; full chain parity is limited by engine topology).
+	if (jdsp->clarityEnabled)
+		ClarityProcess(jdsp, n);
+	// Arbitrary magnitude eq
+	if (jdsp->arbitraryMagEnabled)
+		ArbitraryResponseEqualizerProcess(jdsp, n);
 	jdsp_unlock(jdsp);
 	// BS2B
 	if (jdsp->crossfeedEnabled)
@@ -349,9 +353,6 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// Reverb
 	if (jdsp->reverbEnabled)
 		ReverbProcess(jdsp, n);
-	// Clarity
-	if (jdsp->clarityEnabled)
-		ClarityProcess(jdsp, n);
 	// Output
 	for (size_t i = 0; i < n; i++)
 	{
@@ -384,15 +385,6 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// IIR bass boost
 	if (jdsp->bassBoostEnabled)
 		BassBoostProcess(jdsp, n);
-	// Spectrum extension
-	if (jdsp->spectrumExt.enabled)
-		SpectrumExtensionProcess(jdsp, n);
-	// Equalizer
-	if (jdsp->equalizerEnabled)
-		MultimodalEqualizerProcess(jdsp, n);
-	// Arbitrary magnitude eq
-	if (jdsp->arbitraryMagEnabled)
-		ArbitraryResponseEqualizerProcess(jdsp, n);
 	jdsp_lock(jdsp);
 	// Convolver
 	if (jdsp->convolverEnabled)
@@ -404,6 +396,19 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// Live programmable
 	if (jdsp->liveprogEnabled)
 		LiveProgProcess(jdsp, n);
+	// Spectrum extension (ViPER chain: DDC -> Spectrum -> EQ)
+	if (jdsp->spectrumExt.enabled)
+		SpectrumExtensionProcess(jdsp, n);
+	// Equalizer
+	if (jdsp->equalizerEnabled)
+		MultimodalEqualizerProcess(jdsp, n);
+	// Clarity placement stays after Spectrum/EQ and before ArbEQ (closest safe match to
+	// ViPER's Bass -> Clarity -> Cure segment; full chain parity is limited by engine topology).
+	if (jdsp->clarityEnabled)
+		ClarityProcess(jdsp, n);
+	// Arbitrary magnitude eq
+	if (jdsp->arbitraryMagEnabled)
+		ArbitraryResponseEqualizerProcess(jdsp, n);
 	jdsp_unlock(jdsp);
 	// BS2B
 	if (jdsp->crossfeedEnabled)
@@ -414,9 +419,6 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// Reverb
 	if (jdsp->reverbEnabled)
 		ReverbProcess(jdsp, n);
-	// Clarity
-	if (jdsp->clarityEnabled)
-		ClarityProcess(jdsp, n);
 	// Output
 	for (size_t i = 0; i < n; i++)
 	{
